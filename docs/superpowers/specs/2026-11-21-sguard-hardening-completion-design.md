@@ -64,13 +64,14 @@ SGuard is a Next.js + NestJS web app for managing, auditing and simulating AWS s
 **Design:**
 - New `backend/src/common/rate-limit-store.ts`:
   ```ts
+  export interface RateCheck { allowed: boolean; retryAfterSec: number }
   export interface RateLimitStore {
-    check(key: string): Promise<boolean>;
+    check(key: string): Promise<RateCheck>;
     recordFailure(key: string): Promise<void>;
     reset(key: string): Promise<void>;
   }
   ```
-  Keep the existing `RateLimiter` public shape (`check`, `recordFailure`, `reset`, prune threshold 10k) as `MemoryRateLimitStore`.
+  Keep the existing `RateLimiter` public shape (`check`, `recordFailure`, `reset`, prune threshold 10k, constructor `(maxFailures, windowMs)`) as `MemoryRateLimitStore`. The `RateCheck` shape above is copied verbatim from the current `rate-limit.ts`; auth must see no semantic change.
 - `RedisRateLimitStore` uses the `ioredis` client with atomic `INCR` + `EXPIRE` (pipeline or small Lua script) so the counter and TTL are set together. Counter TTL must match the existing lockout window exactly (read its current value from `rate-limit.ts` during implementation; do not invent a new duration).
 - Store selection in a `@Global` `RateLimitModule` (or factory provider) driven by `ConfigService.get('REDIS_URL')`: empty → memory, non-empty → Redis. `AuthService` injects `RateLimitStore` instead of the concrete class; its logic (failed login increments, successful login resets) is byte-for-byte unchanged.
 - `REDIS_URL` added to `.env.example` and to docker-compose (see Change 6).
