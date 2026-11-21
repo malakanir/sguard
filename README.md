@@ -87,7 +87,7 @@ Test memakai PostgreSQL dari `DATABASE_URL`. Test Lapis 3 menjalankan sync-worke
 - **Ekspor laporan** (FR-15): `GET /reports/export?format=csv|json&groupId=`. Hanya data milik sendiri, dan sel yang diawali `=`, `+`, `-`, `@` diberi apostrof agar aman dibuka di spreadsheet.
 - **RBAC** (FR-17): role `USER` dan `ADMIN`. Endpoint `/admin/*` hanya mengembalikan agregat, tanpa isi rule user lain. Role dicek ulang dari database.
 - **Drift detection** (FR-18): `GET /groups/:id/drift` membandingkan database dengan Floci. `POST /groups/:id/drift/repair` mencabut rule asing dan mengirim ulang rule yang hilang. Rule di luar cakupan Fase 1 (rentang port, dan lainnya) hanya dilaporkan, tidak diubah.
-- **Deployment** (FR-19, bonus): `backend/Dockerfile` dan `frontend/Dockerfile`. Belum dipublikasikan ke platform hosting manapun.
+- **Deployment** (FR-19, bonus): `backend/Dockerfile`, `frontend/Dockerfile`, dan `docker-compose.yml` lengkap. Lihat bagian Local deployment di bawah. Belum dipublikasikan ke platform hosting manapun.
 
 ### Menjadikan admin
 
@@ -119,11 +119,11 @@ Test memakai database dari `DATABASE_URL` dan cloud stub di memori, jadi tidak b
 
 ### Catatan dan batasan
 
-- Rate limit disimpan di memori proses. Dengan banyak instance, diperlukan penyimpanan bersama (Redis).
-- Kunci enkripsi ada di environment. Untuk produksi, kunci sebaiknya dikelola KMS atau Vault. Belum ada rotasi kunci.
-- Webhook memeriksa DNS saat dikirim, tetapi tidak mencegah DNS rebinding sepenuhnya. Itu memerlukan pinning alamat di lapisan HTTP.
-- Kredensial AWS belum mendukung STS AssumeRole, dan belum ada pilihan akun per group setelah dibuat.
-- Pengiriman email sudah diverifikasi lewat SMTP (server uji lokal, bukan Mailpit). Slack dan AWS sungguhan belum diverifikasi, karena butuh webhook dan kredensial milik Anda.
+- Rate limit memakai Redis bila `REDIS_URL` diset (dibagikan antar instance dan bertahan saat restart). Tanpa itu, penyimpanan memori proses.
+- Kunci enkripsi mendukung rotasi lewat `CREDENTIAL_ENCRYPTION_KEYS` dan `CREDENTIAL_ENCRYPTION_ACTIVE_KEY_ID`. Ciphertext lama tetap bisa dibaca. Integrasi KMS atau Vault belum ada; kunci tetap di environment.
+- Koneksi webhook dipin ke alamat yang divalidasi pada setiap pengiriman, sehingga DNS rebinding tidak bisa mengarahkannya ke alamat lain.
+- Akun AWS bisa memakai STS AssumeRole (`roleArn`, `externalId`, `sessionDuration`). Group bisa dipindah ke akun AWS lain; state sinkronisasinya direset dan group dibuat ulang di akun tujuan.
+- Skrip `backend/scripts/verify-integrations.mjs` memeriksa AWS, Slack, dan SMTP dengan kredensial Anda. Skrip ini belum dijalankan terhadap layanan sungguhan.
 - Export laporan (FR-15) tetap hanya data milik sendiri, sesuai PRD. Anggota group yang dibagikan tidak ikut diekspor.
 
 ## Verifikasi terhadap Floci
@@ -153,3 +153,44 @@ Tes ini dilewati bila `FLOCI_TEST` tidak diatur.
 - Fase 3 (FR-26, FR-27, FR-28): selesai. Terverifikasi: AWS (lewat Floci), email (SMTP), dan protokol GitHub OAuth serta Slack (lewat server tiruan). Belum diverifikasi dengan layanan sungguhan: AWS. GitHub dan Slack sudah diuji dengan layanan sungguhan.
 
 Rujukan lengkap ada di PRD (`../PRD SGuard Security Group Rule Manager & Auditor.md`).
+
+## Verifying real integrations
+
+The unit and e2e suites use Floci and mocks. To check real services from your own
+environment, set the relevant variables and run:
+
+```bash
+cd backend
+node --env-file=.env scripts/verify-integrations.mjs
+```
+
+| Check | Variables | Skipped when |
+| --- | --- | --- |
+| AWS / Floci | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, optional `AWS_REGION`, `FLOCI_URL` | credentials unset |
+| Slack | `SLACK_WEBHOOK_URL` | variable unset |
+| SMTP / Mailpit | `VERIFY_EMAIL_TO`, optional `SMTP_HOST`, `SMTP_PORT`, `MAIL_FROM` | `VERIFY_EMAIL_TO` unset |
+
+The script prints a PASS/FAIL/SKIP summary and exits non-zero if any check fails.
+It never prints secret values. The assistant does not run this script; you run it
+where the credentials live.
+
+## Local deployment (Docker Compose)
+
+```bash
+cp .env.example .env
+# Edit .env: set JWT_SECRET and, for real AWS, the credentials and rotation variables.
+docker compose up -d --build
+```
+
+| Service | URL |
+| --- | --- |
+| Frontend | http://localhost:3000 |
+| Backend API | http://localhost:4000 |
+| Health check | http://localhost:4000/health |
+| Mailpit UI | http://localhost:8025 |
+| Floci | http://localhost:4566 |
+
+`GET /health` reports database and Redis status. When `REDIS_URL` is unset the
+backend falls back to in-memory rate limiting and health reports redis as up
+with a note. The backend container runs `prisma migrate deploy` on start.
+`docker compose down` stops the stack; data persists in the `pgdata` volume.

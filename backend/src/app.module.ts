@@ -19,6 +19,7 @@ import { AwsAccountsModule } from './aws-accounts/aws-accounts.module';
 import { AccessModule } from './access/group-access.service';
 import { CryptoModule } from './common/crypto.service';
 import { RateLimitModule } from './common/rate-limit.module.js';
+import { HealthModule } from './health/health.module.js';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { RateLimitModule } from './common/rate-limit.module.js';
     AccessModule,
     CryptoModule,
     RateLimitModule,
+    HealthModule,
     PrismaModule,
     MailModule,
     AuthModule,

@@ -1,6 +1,8 @@
 name: sguard
 
-# Tiga service dari PRD bagian 11: PostgreSQL (data utama), Floci (emulator AWS), Mailpit (SMTP lokal, Lapis 3).
+# Stack lengkap: PostgreSQL (data utama), Redis (rate limit bersama), Floci (emulator AWS),
+# Mailpit (SMTP lokal), backend (NestJS) dan frontend (Next.js).
+# Jalankan: cp .env.example .env && docker compose up -d --build
 services:
   postgres:
     image: postgres:15-alpine
@@ -15,6 +17,17 @@ services:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sguard} -d ${POSTGRES_DB:-sguard}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -34,6 +47,34 @@ services:
     ports:
       - "1025:1025" # SMTP
       - "8025:8025" # UI untuk melihat email verifikasi
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-sguard}:${POSTGRES_PASSWORD:-sguard}@postgres:5432/${POSTGRES_DB:-sguard}
+      REDIS_URL: redis://redis:6379
+    ports:
+      - "4000:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Dipanggil dari browser, jadi memakai alamat backend yang terlihat dari host.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
 
 volumes:
   pgdata:
