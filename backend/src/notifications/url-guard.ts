@@ -32,12 +32,18 @@ export function isPrivateAddress(ip: string): boolean {
   });
 }
 
+export interface SafeTarget {
+  url: URL;
+  /** Alamat yang sudah divalidasi; pengiriman harus terhubung hanya ke alamat ini (lihat pinned-fetch). */
+  addresses: string[];
+}
+
 /**
  * Memastikan URL tujuan aman: https (atau http bila diizinkan), tanpa kredensial di URL,
- * dan hostname tidak mengarah ke alamat privat. Catatan: pengecekan DNS tidak mencegah DNS rebinding
- * sepenuhnya; untuk itu diperlukan pinning alamat di lapisan HTTP.
+ * dan hostname tidak mengarah ke alamat privat. Mengembalikan alamat yang sudah divalidasi
+ * agar koneksi bisa dipin ke alamat tersebut dan tidak terkena DNS rebinding.
  */
-export async function assertSafeWebhookUrl(raw: string, options: UrlGuardOptions): Promise<URL> {
+export async function assertSafeWebhookUrl(raw: string, options: UrlGuardOptions): Promise<SafeTarget> {
   let url: URL;
   try {
     url = new URL(raw);
@@ -48,13 +54,13 @@ export async function assertSafeWebhookUrl(raw: string, options: UrlGuardOptions
   if (!allowedProtocol) throw new BadRequestException('URL harus memakai https.');
   if (url.username || url.password) throw new BadRequestException('URL tidak boleh memuat kredensial.');
 
-  if (!options.allowPrivate) {
-    const hostname = url.hostname.replace(/^\[|\]$/g, '');
-    const addresses = parseIp(hostname) ? [{ address: hostname }] : await lookup(hostname, { all: true }).catch(() => []);
-    if (addresses.length === 0) throw new BadRequestException('Hostname tujuan tidak dapat diselesaikan.');
-    if (addresses.some((a) => isPrivateAddress(a.address))) {
-      throw new BadRequestException('Tujuan mengarah ke alamat privat atau loopback; tidak diizinkan.');
-    }
+  const hostname = url.hostname.replace(/^\[|\]$/g, '');
+  const resolved = parseIp(hostname)
+    ? [{ address: hostname }]
+    : await lookup(hostname, { all: true }).catch(() => []);
+  if (resolved.length === 0) throw new BadRequestException('Hostname tujuan tidak dapat diselesaikan.');
+  if (!options.allowPrivate && resolved.some((a) => isPrivateAddress(a.address))) {
+    throw new BadRequestException('Tujuan mengarah ke alamat privat atau loopback; tidak diizinkan.');
   }
-  return url;
+  return { url, addresses: resolved.map((a) => a.address) };
 }

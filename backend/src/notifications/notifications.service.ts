@@ -17,7 +17,8 @@ import { MAIL_SENDER, MailSender } from '../mail/mail.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { Inject } from '@nestjs/common';
 import { CreateChannelDto } from './dto/channel.dto';
-import { assertSafeWebhookUrl } from './url-guard';
+import { assertSafeWebhookUrl, SafeTarget } from './url-guard';
+import { pinnedFetch } from './pinned-fetch.js';
 
 const DELIVERY_TIMEOUT_MS = 5000;
 
@@ -126,7 +127,8 @@ export class NotificationsService {
       if (channel.type === 'EMAIL') {
         await this.mail.send({ to: target, subject: `[SGuard] ${eventName}`, text });
       } else if (channel.type === 'SLACK') {
-        await this.postJson(target, JSON.stringify({ text }), {});
+        const safe = await this.assertSafe(target);
+        await this.postJson(safe, JSON.stringify({ text }), {});
       } else {
         await this.deliverWebhook(channel, target, eventName, data);
       }
@@ -138,7 +140,8 @@ export class NotificationsService {
   }
 
   private async deliverWebhook(channel: NotificationChannel, target: string, eventName: string, data: object) {
-    await this.assertSafe(target);
+    // Divalidasi ulang setiap pengiriman, lalu koneksi dipin ke alamat hasil validasi ini.
+    const safe = await this.assertSafe(target);
     const body = JSON.stringify({ type: eventName, data, sentAt: new Date().toISOString() });
     const id = randomUUID();
     const timestamp = Math.floor(Date.now() / 1000).toString();
@@ -149,18 +152,20 @@ export class NotificationsService {
       const signature = createHmac('sha256', secret).update(`${id}.${timestamp}.${body}`).digest('base64');
       headers['webhook-signature'] = `v1,${signature}`;
     }
-    await this.postJson(target, body, headers);
+    await this.postJson(safe, body, headers);
   }
 
-  private async postJson(url: string, body: string, extraHeaders: Record<string, string>): Promise<void> {
-    const response = await fetch(url, {
+  private async postJson(
+    safe: SafeTarget,
+    body: string,
+    extraHeaders: Record<string, string>,
+  ): Promise<void> {
+    await pinnedFetch(safe.url, safe.addresses, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'user-agent': 'SGuard-Notifier/1', ...extraHeaders },
       body,
-      redirect: 'error',
-      signal: AbortSignal.timeout(DELIVERY_TIMEOUT_MS),
+      timeoutMs: DELIVERY_TIMEOUT_MS,
     });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
   }
 
   private async recordResult(id: string, status: 'OK' | 'ERROR', error: string | null): Promise<void> {
@@ -187,7 +192,7 @@ export class NotificationsService {
     }
   }
 
-  private assertSafe(target: string): Promise<URL> {
+  private assertSafe(target: string): Promise<SafeTarget> {
     return assertSafeWebhookUrl(target, {
       allowInsecure: this.config.get<string>('ALLOW_INSECURE_WEBHOOKS') === 'true',
       allowPrivate: this.config.get<string>('ALLOW_PRIVATE_WEBHOOKS') === 'true',
