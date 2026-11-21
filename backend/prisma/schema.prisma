@@ -1,0 +1,206 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum SyncStatus {
+  PENDING
+  SYNCED
+  FAILED
+}
+
+enum Protocol {
+  tcp
+  udp
+  icmp
+}
+
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+}
+
+enum Direction {
+  INGRESS
+  EGRESS
+}
+
+enum MemberRole {
+  VIEWER
+  EDITOR
+}
+
+enum ChannelType {
+  EMAIL
+  SLACK
+  WEBHOOK
+}
+
+model User {
+  id                    String    @id @default(uuid()) @db.Uuid
+  name                  String
+  email                 String    @unique
+  passwordHash          String?   @map("password_hash")
+  role                  Role      @default(USER)
+  refreshTokenHash      String?   @map("refresh_token_hash")
+  refreshTokenExpiresAt DateTime? @map("refresh_token_expires_at") @db.Timestamptz()
+  githubId              String?   @unique @map("github_id")
+  emailVerifiedAt       DateTime? @map("email_verified_at") @db.Timestamptz()
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+
+  groups               SecurityGroup[]
+  auditLogs            RuleAuditLog[]
+  emailTokens          EmailVerificationToken[]
+  memberships          GroupMember[]
+  notificationChannels NotificationChannel[]
+  awsAccounts          AwsAccount[]
+
+  @@map("users")
+}
+
+model SecurityGroup {
+  id             String     @id @default(uuid()) @db.Uuid
+  userId         String     @map("user_id") @db.Uuid
+  name           String
+  description    String?
+  flociGroupId   String?    @map("floci_group_id")
+  syncStatus     SyncStatus @default(PENDING) @map("sync_status")
+  syncError      String?    @map("sync_error")
+  createdAt      DateTime   @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt      DateTime   @updatedAt @map("updated_at") @db.Timestamptz()
+  lastScanAt     DateTime?  @map("last_scan_at") @db.Timestamptz()
+  lastScanStatus String?    @map("last_scan_status")
+  awsAccountId   String?    @map("aws_account_id") @db.Uuid
+
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  awsAccount AwsAccount?    @relation(fields: [awsAccountId], references: [id], onDelete: SetNull)
+  rules      FirewallRule[]
+  members    GroupMember[]
+
+  @@unique([userId, name])
+  @@index([userId])
+  @@map("security_groups")
+}
+
+model FirewallRule {
+  id              String     @id @default(uuid()) @db.Uuid
+  securityGroupId String     @map("security_group_id") @db.Uuid
+  name            String
+  direction       Direction  @default(INGRESS)
+  protocol        Protocol
+  port            Int?
+  portTo          Int?       @map("port_to")
+  cidr            String
+  description     String?
+  riskLevel       RiskLevel  @map("risk_level")
+  riskReason      String?    @map("risk_reason")
+  recommendation  String?
+  syncStatus      SyncStatus @default(PENDING) @map("sync_status")
+  syncError       String?    @map("sync_error")
+  createdAt       DateTime   @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt       DateTime   @updatedAt @map("updated_at") @db.Timestamptz()
+
+  group SecurityGroup @relation(fields: [securityGroupId], references: [id], onDelete: Cascade)
+
+  @@unique([securityGroupId, direction, protocol, port, portTo, cidr])
+  @@index([securityGroupId])
+  @@index([riskLevel])
+  @@map("firewall_rules")
+}
+
+model RuleAuditLog {
+  id              String      @id @default(uuid()) @db.Uuid
+  userId          String      @map("user_id") @db.Uuid
+  securityGroupId String?     @map("security_group_id") @db.Uuid
+  ruleId          String?     @map("rule_id") @db.Uuid
+  action          AuditAction
+  before          Json?
+  after           Json?
+  createdAt       DateTime    @default(now()) @map("created_at") @db.Timestamptz()
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("rule_audit_logs")
+}
+
+model EmailVerificationToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash String    @map("token_hash")
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz()
+  usedAt    DateTime? @map("used_at") @db.Timestamptz()
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("email_verification_tokens")
+}
+
+model GroupMember {
+  id              String     @id @default(uuid()) @db.Uuid
+  securityGroupId String     @map("security_group_id") @db.Uuid
+  userId          String     @map("user_id") @db.Uuid
+  role            MemberRole @default(VIEWER)
+  createdAt       DateTime   @default(now()) @map("created_at") @db.Timestamptz()
+
+  group SecurityGroup @relation(fields: [securityGroupId], references: [id], onDelete: Cascade)
+  user  User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([securityGroupId, userId])
+  @@index([userId])
+  @@map("group_members")
+}
+
+model NotificationChannel {
+  id              String      @id @default(uuid()) @db.Uuid
+  userId          String      @map("user_id") @db.Uuid
+  type            ChannelType
+  targetEnc       String      @map("target_enc")
+  secretEnc       String?     @map("secret_enc")
+  events          String[]
+  enabled         Boolean     @default(true)
+  lastStatus      String?     @map("last_status")
+  lastError       String?     @map("last_error")
+  lastDeliveredAt DateTime?   @map("last_delivered_at") @db.Timestamptz()
+  createdAt       DateTime    @default(now()) @map("created_at") @db.Timestamptz()
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("notification_channels")
+}
+
+model AwsAccount {
+  id                 String    @id @default(uuid()) @db.Uuid
+  userId             String    @map("user_id") @db.Uuid
+  name               String
+  region             String
+  accessKeyIdEnc     String    @map("access_key_id_enc")
+  secretAccessKeyEnc String    @map("secret_access_key_enc")
+  lastVerifiedAt     DateTime? @map("last_verified_at") @db.Timestamptz()
+  lastVerifyError    String?   @map("last_verify_error")
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+
+  user   User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  groups SecurityGroup[]
+
+  @@unique([userId, name])
+  @@map("aws_accounts")
+}
