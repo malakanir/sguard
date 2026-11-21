@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { HttpException, HttpStatus } from '@nestjs/common';
-import { RateLimiter } from '../common/rate-limit';
+import { RATE_LIMIT_STORE, RateLimitStore } from '../common/rate-limit-store.js';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { randomBytes } from 'node:crypto';
@@ -20,10 +20,6 @@ import { hashToken, newRefreshToken, REFRESH_TOKEN_TTL_MS } from './tokens';
 
 const BCRYPT_ROUNDS = 10;
 const VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000;
-/** Maksimal 5 percobaan gagal per 15 menit untuk satu kombinasi IP dan email (FR-25). */
-const LOGIN_MAX_FAILURES = 5;
-const LOGIN_WINDOW_MS = 15 * 60 * 1000;
-
 export interface GithubProfile {
   githubId: string;
   email: string | null;
@@ -32,13 +28,13 @@ export interface GithubProfile {
 
 @Injectable()
 export class AuthService {
-  private readonly loginLimiter = new RateLimiter(LOGIN_MAX_FAILURES, LOGIN_WINDOW_MS);
-
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
     @Inject(MAIL_SENDER) private readonly mail: MailSender,
+    /** Maksimal 5 percobaan gagal per 15 menit untuk satu kombinasi IP dan email (FR-25). */
+    @Inject(RATE_LIMIT_STORE) private readonly loginLimiter: RateLimitStore,
   ) {}
 
   /** Flag EMAIL_VERIFICATION, nonaktif secara default (PRD bagian 6). */
@@ -75,7 +71,7 @@ export class AuthService {
   async login(dto: LoginDto, ip = 'unknown') {
     const email = dto.email.toLowerCase();
     const key = `${ip}|${email}`;
-    const gate = this.loginLimiter.check(key);
+    const gate = await this.loginLimiter.check(key);
     if (!gate.allowed) {
       throw new HttpException(
         `Terlalu banyak percobaan login. Coba lagi dalam ${Math.ceil(gate.retryAfterSec / 60)} menit.`,
@@ -85,10 +81,10 @@ export class AuthService {
     const user = await this.prisma.user.findUnique({ where: { email } });
     // Pesan sama untuk email tidak ada dan password salah, supaya tidak membocorkan akun.
     if (!user?.passwordHash || !(await bcrypt.compare(dto.password, user.passwordHash))) {
-      this.loginLimiter.recordFailure(key);
+      await this.loginLimiter.recordFailure(key);
       throw new UnauthorizedException('Email atau password salah.');
     }
-    this.loginLimiter.reset(key);
+    await this.loginLimiter.reset(key);
     if (this.emailVerificationEnabled() && !user.emailVerifiedAt) {
       throw new ForbiddenException('Email belum diverifikasi. Cek kotak masuk Anda.');
     }

@@ -1,13 +1,7 @@
-/**
- * Pembatas percobaan gagal dalam memori (PRD FR-25). Hanya kegagalan yang dihitung;
- * login yang berhasil menghapus hitungan. Di banyak instance, pakai penyimpanan bersama (Redis).
- */
-export interface RateCheck {
-  allowed: boolean;
-  retryAfterSec: number;
-}
+import { RateCheck, RateLimitStore } from './rate-limit-store.js';
 
-export class RateLimiter {
+/** Penyimpanan dalam memori untuk satu instance. Dipakai saat REDIS_URL kosong. */
+export class MemoryRateLimitStore implements RateLimitStore {
   private readonly entries = new Map<string, { count: number; resetAt: number }>();
 
   constructor(
@@ -15,7 +9,7 @@ export class RateLimiter {
     private readonly windowMs: number,
   ) {}
 
-  check(key: string): RateCheck {
+  async check(key: string): Promise<RateCheck> {
     const now = Date.now();
     const entry = this.entries.get(key);
     if (!entry || entry.resetAt <= now) return { allowed: true, retryAfterSec: 0 };
@@ -25,7 +19,7 @@ export class RateLimiter {
     return { allowed: true, retryAfterSec: 0 };
   }
 
-  recordFailure(key: string): void {
+  async recordFailure(key: string): Promise<void> {
     const now = Date.now();
     this.pruneIfLarge(now);
     const entry = this.entries.get(key);
@@ -36,7 +30,7 @@ export class RateLimiter {
     }
   }
 
-  reset(key: string): void {
+  async reset(key: string): Promise<void> {
     this.entries.delete(key);
   }
 

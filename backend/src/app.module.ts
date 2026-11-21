@@ -18,6 +18,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { AwsAccountsModule } from './aws-accounts/aws-accounts.module';
 import { AccessModule } from './access/group-access.service';
 import { CryptoModule } from './common/crypto.service';
+import { RateLimitModule } from './common/rate-limit.module.js';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { CryptoModule } from './common/crypto.service';
     ScheduleModule.forRoot(),
     AccessModule,
     CryptoModule,
+    RateLimitModule,
     PrismaModule,
     MailModule,
     AuthModule,
