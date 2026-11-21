@@ -35,6 +35,9 @@ export class AwsAccountsService {
         region: dto.region,
         accessKeyIdEnc: this.crypto.encrypt(dto.accessKeyId),
         secretAccessKeyEnc: this.crypto.encrypt(dto.secretAccessKey),
+        ...(dto.roleArn ? { roleArn: dto.roleArn } : {}),
+        ...(dto.externalId ? { externalIdEnc: this.crypto.encrypt(dto.externalId) } : {}),
+        ...(dto.sessionDuration ? { sessionDuration: dto.sessionDuration } : {}),
       },
     });
     return this.toView(account, 0);
@@ -79,6 +82,9 @@ export class AwsAccountsService {
       name: string;
       region: string;
       accessKeyIdEnc: string;
+      roleArn: string | null;
+      externalIdEnc: string | null;
+      sessionDuration: number;
       lastVerifiedAt: Date | null;
       lastVerifyError: string | null;
       createdAt: Date;
@@ -91,6 +97,10 @@ export class AwsAccountsService {
       name: account.name,
       region: account.region,
       accessKeyIdHint: `****${accessKeyId.slice(-4)}`,
+      roleArn: account.roleArn,
+      sessionDuration: account.sessionDuration,
+      // externalId tidak pernah dikembalikan ke klien; hanya indikator bahwa ada.
+      hasExternalId: Boolean(account.externalIdEnc),
       groupCount,
       lastVerifiedAt: account.lastVerifiedAt,
       lastVerifyError: account.lastVerifyError,

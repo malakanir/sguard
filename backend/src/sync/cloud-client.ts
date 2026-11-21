@@ -64,6 +64,8 @@ export interface Ec2Options {
   endpoint?: string;
   accessKeyId: string;
   secretAccessKey: string;
+  /** Token sesi dari STS AssumeRole; kosong untuk access key statis. */
+  sessionToken?: string;
 }
 
 /** Klien nyata lewat AWS SDK v3 EC2. Dipakai untuk Floci (endpoint lokal) maupun AWS sungguhan. */
@@ -74,7 +76,11 @@ export class Ec2CloudClient implements CloudClient {
     this.ec2 = new EC2Client({
       region: options.region,
       endpoint: options.endpoint,
-      credentials: { accessKeyId: options.accessKeyId, secretAccessKey: options.secretAccessKey },
+      credentials: {
+        accessKeyId: options.accessKeyId,
+        secretAccessKey: options.secretAccessKey,
+        ...(options.sessionToken ? { sessionToken: options.sessionToken } : {}),
+      },
     });
   }
 

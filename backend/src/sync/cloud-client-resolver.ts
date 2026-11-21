@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { CryptoService } from '../common/crypto.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CLOUD_CLIENT, CloudClient, Ec2CloudClient } from './cloud-client';
+import { assumeRole } from './sts.js';
 
 /**
  * Memilih klien cloud untuk sebuah group: akun AWS yang dihubungkan, atau klien default (Floci/stub).
@@ -24,10 +25,22 @@ export class CloudClientResolver {
     if (!this.crypto.isConfigured()) {
       throw new ServiceUnavailableException('Enkripsi belum dikonfigurasi (CREDENTIAL_ENCRYPTION_KEY).');
     }
-    return new Ec2CloudClient({
-      region: account.region,
+    const region = account.region;
+    const baseCredentials = {
       accessKeyId: this.crypto.decrypt(account.accessKeyIdEnc),
       secretAccessKey: this.crypto.decrypt(account.secretAccessKeyEnc),
-    });
+    };
+    if (account.roleArn) {
+      // Peran di-assume memakai kredensial dasar akun; hasilnya kredensial sementara dengan session token.
+      const temporary = await assumeRole({
+        region,
+        roleArn: account.roleArn,
+        ...(account.externalIdEnc ? { externalId: this.crypto.decrypt(account.externalIdEnc) } : {}),
+        sessionDuration: account.sessionDuration,
+        baseCredentials,
+      });
+      return new Ec2CloudClient({ region, ...temporary });
+    }
+    return new Ec2CloudClient({ region, ...baseCredentials });
   }
 }

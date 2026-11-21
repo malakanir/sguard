@@ -194,6 +194,9 @@ model AwsAccount {
   region             String
   accessKeyIdEnc     String    @map("access_key_id_enc")
   secretAccessKeyEnc String    @map("secret_access_key_enc")
+  roleArn            String?   @map("role_arn")
+  externalIdEnc      String?   @map("external_id_enc")
+  sessionDuration    Int       @default(3600) @map("session_duration")
   lastVerifiedAt     DateTime? @map("last_verified_at") @db.Timestamptz()
   lastVerifyError    String?   @map("last_verify_error")
   createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz()
