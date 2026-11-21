@@ -1,4 +1,4 @@
-import { PartialType } from '@nestjs/mapped-types';
+import { OmitType, PartialType } from '@nestjs/mapped-types';
 import { IsEmail, IsIn, IsInt, IsIP, IsNotEmpty, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 
@@ -19,7 +19,12 @@ export class CreateGroupDto {
   awsAccountId?: string;
 }
 
-export class UpdateGroupDto extends PartialType(CreateGroupDto) {}
+/** `awsAccountId: null` melepaskan akun AWS dan memakai kembali Floci/stub. */
+export class UpdateGroupDto extends PartialType(OmitType(CreateGroupDto, ['awsAccountId'] as const)) {
+  @IsOptional()
+  @IsUUID('all', { message: 'awsAccountId tidak valid' })
+  awsAccountId?: string | null;
+}
 
 export class GroupListQueryDto extends PaginationQueryDto {}
 

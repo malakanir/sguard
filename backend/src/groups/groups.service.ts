@@ -1,5 +1,5 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, RiskLevel } from '@prisma/client';
+import { Prisma, RiskLevel, SyncStatus } from '@prisma/client';
 import { GroupAccess, GroupRole } from '../access/group-access.service';
 import { paginate } from '../common/pagination';
 import { PrismaService } from '../prisma/prisma.service';
@@ -90,16 +90,31 @@ export class GroupsService {
 
   async update(userId: string, id: string, dto: UpdateGroupDto) {
     await this.access.require(userId, id, 'OWNER');
+    let accountChanged = false;
     if (dto.awsAccountId !== undefined) {
-      throw new BadRequestException('Akun AWS tidak dapat diubah setelah group dibuat.');
+      if (dto.awsAccountId !== null) {
+        const account = await this.prisma.awsAccount.findFirst({ where: { id: dto.awsAccountId, userId } });
+        if (!account) throw new NotFoundException('Akun AWS tidak ditemukan.');
+      }
+      accountChanged = true;
     }
-    await this.prisma.securityGroup.update({
+    const updated = await this.prisma.securityGroup.update({
       where: { id },
       data: {
         ...(dto.name !== undefined ? { name: dto.name } : {}),
         ...(dto.description !== undefined ? { description: dto.description ?? null } : {}),
+        // Ganti akun berarti group harus dibuat ulang di akun/Floci tujuan.
+        ...(accountChanged
+          ? {
+              awsAccountId: dto.awsAccountId ?? null,
+              flociGroupId: null,
+              syncStatus: SyncStatus.PENDING,
+              syncError: null,
+            }
+          : {}),
       },
     });
+    if (accountChanged) await this.sync.ensureGroup(updated.id);
     return this.findOne(userId, id);
   }
 
