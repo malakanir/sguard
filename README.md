@@ -194,3 +194,9 @@ docker compose up -d --build
 backend falls back to in-memory rate limiting and health reports redis as up
 with a note. The backend container runs `prisma migrate deploy` on start.
 `docker compose down` stops the stack; data persists in the `pgdata` volume.
+
+## Presentasi
+
+Slide presentasi proyek (57 slide: problem, solusi, arsitektur, fitur, demo, dan challenge) ada di [docs/presentasi/SGuard-Presentasi.pptx](docs/presentasi/SGuard-Presentasi.pptx).
+
+Catatan: alamat di slide demo masih `localhost`, dan demo di slide adalah skenario yang dirancang, bukan hasil yang sudah dijalankan.
